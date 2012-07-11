@@ -51,13 +51,12 @@ build_dep_ignore_list = [
 	'zlib'
 ]
 
-def check_rpm (name):
-	# FIXME: use 'repoquery -C %s | wc -l' - no errorlevel
-	errorlevel = subprocess.call ('rpm -q %s > /dev/null' % name, shell = True)
+def check_package_exists (name):
+	output = subprocess.check_output ('repoquery -C %s' % name, shell = True)
 
-	if errorlevel == 1:
-		return False
-	return True
+	if len(output) > 0:
+		return True
+	return False
 
 def get_fedora_package_for_build_requires (owner, fedora_build_requires):
 	yum_query = 'repoquery -C --whatprovides "%s" --qf "%%{NAME}\\n"'
@@ -142,6 +141,13 @@ class FedoraPackageDB ():
 		if package_name in self.fedora_package_to_chunk:
 			return self.fedora_package_to_chunk[package_name]
 
+	def get_srcpackage_name (self, package_name):
+		# We need a couple of special-cases here, because the source package
+		# doesn't *have* to correspond to its output packages at all
+
+		if package_name == 'xorg-x11-server-Xorg':
+			return 'xorg-x11-server'
+		return package_name
 
 
 	# However, Fedora can throw a lot more at us in BuildRequires: so this
@@ -162,25 +168,30 @@ class FedoraPackageDB ():
 
 			fedora_package_name = self.chunk_to_fedora_package (chunk_name)
 
-			if check_rpm (fedora_package_name) == False:
+			if check_package_exists (fedora_package_name) == False:
 				print ('No Fedora package for chunk %s (tried %s)' % (chunk_name, fedora_package_name))
 				continue
 
 			self.fedora_package_to_chunk[fedora_package_name] = chunk_name
 
-			spec_file = os.path.join (self.cache_path, fedora_package_name + '.spec')
+			self.check_and_download_spec_file (self.get_srcpackage_name (fedora_package_name))
 
-			if not os.path.exists (spec_file):
-				# Scrape from Fedora's gitweb
-				FEDORA_SPEC_FILE_URL = "http://pkgs.fedoraproject.org/gitweb/?p=%s.git;a=blob_plain;f=%s.spec"
-				spec_url = FEDORA_SPEC_FILE_URL % (fedora_package_name, fedora_package_name)
+	def check_and_download_spec_file (self, srcpackage_name):
+		spec_file_name = os.path.join (self.cache_path, srcpackage_name + '.spec')
 
-				subprocess.call ('wget "%s" --output-document=%s' % (spec_url, spec_file), shell = True)
+		if os.path.exists(spec_file_name) and os.stat(spec_file_name).st_size > 0:
+			return
+
+		# Scrape from Fedora's gitweb
+		FEDORA_SPEC_FILE_URL = "http://pkgs.fedoraproject.org/gitweb/?p=%s.git;a=blob_plain;f=%s.spec"
+		spec_url = FEDORA_SPEC_FILE_URL % (srcpackage_name, srcpackage_name)
+		subprocess.call ('wget -c "%s" --output-document=%s' % (spec_url, spec_file_name), shell = True)
+
 
 	def get_build_depends (self, chunk_name):
 		chunk_fedora_package_name = self.chunk_to_fedora_package (chunk_name)
 
-		spec_file = os.path.join (self.cache_path, chunk_fedora_package_name + '.spec')
+		spec_file = os.path.join (self.cache_path, self.get_srcpackage_name (chunk_fedora_package_name) + '.spec')
 
 		chunk_build_depends_list = []
 
