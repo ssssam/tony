@@ -19,31 +19,13 @@ def __main__ ():
 	source_list = parser.get_root().get_object().get_member('sources')
 
 	for chunk_node in source_list.get_array().get_elements():
-		# Do something here for each chunk
 		chunk_object = chunk_node.get_object ()
 		chunk_name = chunk_object.get_member('name').get_string()
-
 		chunk_dict[chunk_name] = chunk_object
 
-	fedora = FedoraPackageDB ('/home/sam/baserock/spec-cache', chunk_dict)
+		# Do something here for each chunk
+		add_build_depends_to_all (chunk_node, "xorg-util-macros")
 
-	for chunk_node in source_list.get_array().get_elements():
-		chunk_object = chunk_node.get_object ()
-		chunk_name = chunk_object.get_member('name').get_string()
-
-		if chunk_name in fedora_ignore_list or chunk_name.startswith("xorg-proto-"):
-			# These are all just xorg-x11-proto-devel in Fedora
-			continue
-
-		fedora_build_depends = fedora.get_build_depends (chunk_name)
-
-		fedora_build_depends.sort()
-
-		new_build_depends = Json.Array()
-		for bd in fedora_build_depends:
-			new_build_depends.add_string_element (bd)
-
-		chunk_object.set_array_member ('build-depends', new_build_depends)
 
 	write_json_postprocessed (FILENAME, parser.get_root ())
 
@@ -70,17 +52,74 @@ def add_repo (source_node, repo_format):
 			source_object.remove_member ('build-depends')
 			source_object.set_member ('build-depends', bd)
 
-def add_build_depends (source_node):
+
+def add_build_depends_to_all (source_node, build_dep_name):
 	"""
-	Add empty "build-depends", which is now mandatory
+	Add a chunk to "build-depends" for each source in a stratum
 	"""
 	source_object = source_node.get_object ()
 
-	if not source_object.has_member('build-depends'):
-		empty_array = Json.Array ()
-		empty_array_node = source_node.get_parent().copy ()
-		empty_array_node.set_array (empty_array)
-		source_object.set_member ('build-depends', empty_array_node)
+	if source_object.get_member('name').get_string() == build_dep_name:
+		return
+
+	# This is the method so the build-depends list remains sorted
+	old_build_depends_node = source_object.get_member ("build-depends")
+	new_build_depends = Json.Array()
+
+	build_depends = []
+
+	for bd in old_build_depends_node.get_array().get_elements():
+		build_depends.append (bd.get_string())
+	build_depends.append (build_dep_name)
+
+	build_depends.sort()
+
+	for bd in build_depends:
+		new_build_depends.add_string_element (bd)
+
+	source_object.set_array_member ('build-depends', new_build_depends)
+
+
+def add_build_depends_from_fedora (chunk_dict, source_list):
+	"""
+	Work out "build-depends" from Fedora spec files
+	"""
+	fedora = FedoraPackageDB ('/home/sam/baserock/spec-cache', chunk_dict)
+
+	for chunk_node in source_list.get_array().get_elements():
+		chunk_object = chunk_node.get_object ()
+		chunk_name = chunk_object.get_member('name').get_string()
+
+		if chunk_name in fedora_ignore_list or chunk_name.startswith("xorg-proto-"):
+			# These are all just xorg-x11-proto-devel in Fedora
+			continue
+
+		fedora_build_depends = fedora.get_build_depends (chunk_name)
+
+		fedora_build_depends.sort()
+
+		new_build_depends = Json.Array()
+		for bd in fedora_build_depends:
+			new_build_depends.add_string_element (bd)
+
+		chunk_object.set_array_member ('build-depends', new_build_depends)
+
+
+def sort_build_depends (chunk_object):
+	old_build_depends_node = chunk_object.get_member ("build-depends")
+	new_build_depends = Json.Array()
+
+	build_depends = []
+
+	for bd in old_build_depends_node.get_array().get_elements():
+		build_depends.append (bd.get_string())
+
+	build_depends.sort()
+
+	for bd in build_depends:
+		new_build_depends.add_string_element (bd)
+
+	chunk_object.set_array_member ('build-depends', new_build_depends)
 
 
 def write_json_postprocessed (filename, root_node):
