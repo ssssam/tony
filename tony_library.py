@@ -77,6 +77,7 @@ def fix_xorg_chunk_name (source_node, chunk_to_xorg_repo):
 
 def find_unneeded_chunks ():
 	'''Detect chunks that were branched just to set configure arguments'''
+
 	unneeded_chunks = {}
 	for chunk_morph in glob.glob ('/home/sam/baserock/delta/*/*.morph'):
 		data = json.load(open(chunk_morph))
@@ -105,3 +106,23 @@ def find_unneeded_chunks ():
 				continue
 
 			unneeded_chunks[data['name']] = configure_cmd
+
+def fix_sorting ():
+	for stratum_morph in ['gnome.morph', 'x.morph', 'gtk+.morph', 'gnome-legacy.morph']:
+		parser = Json.Parser ()
+		parser.load_from_file (stratum_morph)
+
+		stratum = parser.get_root().get_object()
+		if stratum.get_member('kind').get_string() != 'stratum' or \
+		   stratum.get_member('sources') == None:
+			continue
+
+		for sources_node in stratum.get_member('sources').get_array().get_elements():
+			sources = sources_node.get_object()
+			build_depends = sources.get_array_member('build-depends').copy()
+			sources.remove_member('build-depends')
+			sources.set_array_member('build-depends', build_depends)
+
+		write_json_postprocessed (stratum_morph, parser.get_root())
+
+	return
