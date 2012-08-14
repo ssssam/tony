@@ -107,22 +107,24 @@ def find_unneeded_chunks ():
 
 			unneeded_chunks[data['name']] = configure_cmd
 
-def fix_sorting ():
+
+def stratum_process():
 	for stratum_morph in ['gnome.morph', 'x.morph', 'gtk+.morph', 'gnome-legacy.morph']:
 		parser = Json.Parser ()
 		parser.load_from_file (stratum_morph)
 
-		stratum = parser.get_root().get_object()
-		if stratum.get_member('kind').get_string() != 'stratum' or \
-		   stratum.get_member('sources') == None:
-			continue
+		source_list = parser.get_root().get_object().get_member('sources')
+		for source in source_list.get_array().get_elements():
+			environment = source.get_object().get_member('environment')
+			if environment:
+				args_string = environment.get_object().get_member('BR_CONFIGURE_FLAGS')
+				args_array = Json.Array()
+				for arg in args_string.get_string().split():
+					args_array.add_string_element(arg)
+				source.get_object().set_array_member('args', args_array)
+				source.get_object().remove_member('environment')
 
-		for sources_node in stratum.get_member('sources').get_array().get_elements():
-			sources = sources_node.get_object()
-			build_depends = sources.get_array_member('build-depends').copy()
-			sources.remove_member('build-depends')
-			sources.set_array_member('build-depends', build_depends)
+		fix_stratum_sorting (parser.get_root().get_object())
 
 		write_json_postprocessed (stratum_morph, parser.get_root())
 
-	return

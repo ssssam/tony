@@ -25,7 +25,8 @@ def __main__ ():
 	#sort_sources (parser.get_root().get_object())
 
 	#write_json_postprocessed (FILENAME, parser.get_root())
-	#return
+	return
+
 
 def jhbuild_import ():
 	chunk_dict = {}
@@ -226,6 +227,17 @@ def sort_sources (stratum_object):
 
 	stratum_object.set_array_member ('sources', new_source_list)
 
+def fix_stratum_sorting (stratum):
+	if stratum.get_member('kind').get_string() != 'stratum' or \
+	   stratum.get_member('sources') == None:
+		return
+
+	for sources_node in stratum.get_member('sources').get_array().get_elements():
+		sources = sources_node.get_object()
+		build_depends = sources.get_array_member('build-depends').copy()
+		sources.remove_member('build-depends')
+		sources.set_array_member('build-depends', build_depends)
+
 def load_stratum_with_deps (filename, nested = False):
 	"""
 	Returns: tuplet of Json.Parser for current file, and set of chunks
@@ -260,6 +272,7 @@ def load_stratum_with_deps (filename, nested = False):
 
 
 	return (parser, build_dep_chunk_set)
+
 
 def write_json_postprocessed (filename, root_node):
 	"""
