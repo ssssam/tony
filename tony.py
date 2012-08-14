@@ -4,24 +4,31 @@
 # JSON-GLib allows us to edit the data without reordering it.
 
 from gi.repository import Json
+import glob
 import re
 from tony_fedora import FedoraPackageDB, fedora_ignore_list
 from tony_jhbuild import JhbuildModules
+
+import json
 
 FILENAME = "gnome.morph"
 
 JHBUILD_PATH = "/home/sam/gnome/src/jhbuild"
 
 def __main__ ():
-	chunk_dict = {}
-
-	jhbuild = JhbuildModules (JHBUILD_PATH)
-
 	# Load input stratum
 	# - parser is a Json.Parser() for the file
 	# - stratum_build_depends is a list of the chunks available in strata
 	#   that are dependencies of the one that was specified.
-	(parser, stratum_build_depends) = load_stratum (FILENAME)
+	#(parser, stratum_build_depends) = load_stratum (FILENAME)
+
+	#sort_sources (parser.get_root().get_object())
+
+	#write_json_postprocessed (FILENAME, parser.get_root())
+	#return
+
+def jhbuild_import ():
+	chunk_dict = {}
 
 	chunks = jhbuild.get_module_list('meta-gnome-core-shell')
 	jhbuild_chunks = chunks.difference (stratum_build_depends)
@@ -36,16 +43,20 @@ def __main__ ():
 
 		morph_chunks.add (chunk_name)
 
-		# Check dependencies match jhbuild
-		jhbuild_build_depends = jhbuild.get_module_build_depends (chunk_name)
-		jhbuild_build_depends = list (jhbuild_build_depends.difference (stratum_build_depends))
-		jhbuild_build_depends.sort()
+		if not jhbuild.chunk_is_module (chunk_name):
+			continue
 
-		new_build_depends = Json.Array()
-		for bd in jhbuild_build_depends:
-			new_build_depends.add_string_element (bd)
+		if False:
+			# Check dependencies match jhbuild
+			jhbuild_build_depends = jhbuild.get_module_build_depends (chunk_name)
+			jhbuild_build_depends = list (jhbuild_build_depends.difference (stratum_build_depends))
+			jhbuild_build_depends.sort()
 
-		chunk_object.set_array_member ('build-depends', new_build_depends)
+			new_build_depends = Json.Array()
+			for bd in jhbuild_build_depends:
+				new_build_depends.add_string_element (bd)
+
+			chunk_object.set_array_member ('build-depends', new_build_depends)
 
 	for new_chunk in jhbuild_chunks.difference(morph_chunks):
 		chunk_object = Json.Object ()
@@ -55,6 +66,10 @@ def __main__ ():
 		if repo is not None:
 			chunk_object.set_string_member ('repo', repo)
 			chunk_object.set_string_member ('ref', 'master')
+		else:
+			print "%s: setting default repo" % new_chunk
+			chunk_object.set_string_member ('repo', 'upstream:%s' % new_chunk)
+			chunk_object.set_string_member ('ref', 'baserock/morph')
 
 		jhbuild_build_depends = jhbuild.get_module_build_depends (new_chunk)
 		jhbuild_build_depends = list (jhbuild_build_depends.difference (stratum_build_depends))
@@ -179,7 +194,8 @@ def sort_sources (stratum_object):
 	satisfied_list = []
 
 	# Simple try-try-again algorithm to satisfy dependency ordering too
-	while len (sort_order) > 0:
+	repeat_count = 0
+	while len (sort_order) > 0 and repeat_count < 10:
 		postponed_list = []
 
 		for source_name in sort_order:
@@ -198,6 +214,10 @@ def sort_sources (stratum_object):
 			else:
 				postponed_list.append (source_name)
 
+		if len(postponed_list) == len(sort_order):
+			# We're probably stuck
+			repeat_count += 1
+
 		sort_order = postponed_list
 
 	new_source_list = Json.Array()
@@ -206,7 +226,7 @@ def sort_sources (stratum_object):
 
 	stratum_object.set_array_member ('sources', new_source_list)
 
-def load_stratum (filename):
+def load_stratum_with_deps (filename, nested = False):
 	"""
 	Returns: tuplet of Json.Parser for current file, and set of chunks
 	that are available in strata that this one depends on.
@@ -215,23 +235,29 @@ def load_stratum (filename):
 	parser.load_from_file (filename)
 
 	build_dep_chunk_set = set()
+
 	build_dep_list = parser.get_root().get_object().get_member('build-depends')
-
 	if build_dep_list is not None:
-		for build_dep_node in build_dep_list.get_array().get_elements():
-			# FIXME: use a more geological term for "the stratum below this one" :)
-			child_file = build_dep_node.get_string () + ".morph"
-			(child_parser, child_build_dep_set) = load_stratum (child_file)
+		build_dep_list = [node.get_string() + ".morph" for node in build_dep_list.get_array().get_elements()]
+	else:
+		build_dep_list = []
+	if not nested:
+		build_dep_list += ['devel.morph', 'foundation.morph']
 
-			build_dep_chunk_set = set.union (build_dep_chunk_set, child_build_dep_set)
+	for child_filename in build_dep_list:
+		# FIXME: use a more geological term for "the stratum below this one" :)
+		(child_parser, child_build_dep_set) = load_stratum (child_filename, nested = True)
 
-			child_source_list = child_parser.get_root().get_object().get_member('sources')
+		build_dep_chunk_set = set.union (build_dep_chunk_set, child_build_dep_set)
 
-			for chunk_node in child_source_list.get_array().get_elements():
-				chunk_object = chunk_node.get_object ()
-				chunk_name = chunk_object.get_member('name').get_string()
+		child_source_list = child_parser.get_root().get_object().get_member('sources')
 
-				build_dep_chunk_set.add (chunk_name)
+		for chunk_node in child_source_list.get_array().get_elements():
+			chunk_object = chunk_node.get_object ()
+			chunk_name = chunk_object.get_member('name').get_string()
+
+			build_dep_chunk_set.add (chunk_name)
+
 
 	return (parser, build_dep_chunk_set)
 
