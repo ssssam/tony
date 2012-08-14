@@ -73,3 +73,35 @@ def fix_xorg_chunk_name (source_node, chunk_to_xorg_repo):
 			build_dep_name = build_dep_node.get_string()
 			if build_dep_name in chunk_to_xorg_repo:
 				build_dep_node.set_string (chunk_to_xorg_repo[build_dep_name].replace('/','-'))
+
+
+def find_unneeded_chunks ():
+	'''Detect chunks that were branched just to set configure arguments'''
+	unneeded_chunks = {}
+	for chunk_morph in glob.glob ('/home/sam/baserock/delta/*/*.morph'):
+		data = json.load(open(chunk_morph))
+		if data['build-system'] == 'autotools' and \
+		   'configure-commands' in data and \
+		   'build-commands' not in data and \
+		   'install-commands' not in data:
+			cmds = data['configure-commands']
+
+			if len (cmds) == 2 and \
+			   (cmds[0] == 'NOCONFIGURE=1 ./autogen.sh' or \
+			    cmds[0] == './autogen.sh'):
+				configure_cmd = cmds[1]
+			elif len (cmds) == 1 and cmds[0].startswith('./autogen.sh'):
+				configure_cmd = cmds[0]
+			else:
+				print "Ignore: ", chunk_morph
+				continue
+
+			if configure_cmd.startswith ('./configure --prefix="$PREFIX" '):
+				configure_cmd = configure_cmd[len('./configure --prefix="$PREFIX" '):]
+			elif configure_cmd.startswith ('./autogen.sh --prefix="$PREFIX" '):
+				configure_cmd = configure_cmd[len('./autogen.sh --prefix="$PREFIX" '):]
+			else:
+				print "Ignore: ", chunk_morph
+				continue
+
+			unneeded_chunks[data['name']] = configure_cmd
