@@ -11,28 +11,93 @@ from tony_jhbuild import JhbuildModules
 
 import json
 
-FILENAME = "gnome.morph"
-
-JHBUILD_PATH = "/home/sam/gnome/src/jhbuild"
-
 def __main__ ():
+	# Synchronise with jhbuild moduleset
+	jhbuild_import('/home/sam/gnome/src/jhbuild',
+	               'gnome.morph',
+	               'meta-gnome-core-shell')
+
+	jhbuild_import('/home/sam/gnome/src/jhbuild',
+	               'gnome-legacy.morph',
+	               'meta-gnome-core-shell-fallback')
+
 	# Load input stratum
 	# - parser is a Json.Parser() for the file
 	# - stratum_build_depends is a list of the chunks available in strata
 	#   that are dependencies of the one that was specified.
-	#(parser, stratum_build_depends) = load_stratum (FILENAME)
+	#(parser, stratum_build_depends) = load_stratum ("gnome.morph")
 
 	#sort_sources (parser.get_root().get_object())
 
 	#write_json_postprocessed (FILENAME, parser.get_root())
+
 	return
 
 
-def jhbuild_import ():
+def jhbuild_import (jhbuild_path, stratum_morphology, target_metamodule):
+	inputs = [
+		# apps & world - not needed for basic gnomeos
+		'gnome-apps-3.6.modules',
+		'gnome-world-3.6.modules',
+
+		# core shell, fallback shell, core utilities and extras
+		# also some core OS services (NetworkManager, gdm, dbus, etc)
+		'gnome-suites-core-3.6.modules',
+		'gnome-suites-core-deps-3.6.modules',
+
+		# these are the stable deps we use tarball for, probably not required ...
+		'gnome-suites-core-deps-base-3.6.modules',
+	]
+
+	ignore_list = set([
+		# In foundation / Gtk+ under different names
+		'expat',
+		'gtk-doc',
+		'gudev',
+
+		# Nonsense
+		'ConsoleKit',
+		'gnome-packagekit',
+		'gnome-screensaver',
+		'PackageKit',
+
+		# Keeps the dependencies down for now, we will probably need it later
+		'gnome-control-center',
+
+		# I'd like to keep a11y stuff in wherever possible, but this is big
+		'mousetweaks',
+
+		# Maybe a separate 'gnome-networking' stratum?
+		# In practice we'd need to make some of these deps optional upstream
+		'glib-networking',
+		'avahi',
+		'NetworkManager',
+		'network-manager-applet',
+		'telepathy-mission-control',
+
+		# Requires WebKit, which requires Gtk+-2, generally not want.
+		# We need to configure evolution-data-server with --disable-goa.
+		'gnome-online-accounts',
+
+		# Needs NetworkManager. We must pass --disable-weather to
+		# evolution-data-server accordingly.
+		'libgweather',
+
+		# Conditional dep of gnome-settings-daemon, not useful in embedded
+		'libwacom',
+
+		# Don't want
+		'bluez'
+	])
+
+	(parser, stratum_build_depends) = load_stratum_with_deps(stratum_morphology)
+
+	jhbuild = JhbuildModules(jhbuild_path, inputs, ignore_list)
+
 	chunk_dict = {}
 
-	chunks = jhbuild.get_module_list('meta-gnome-core-shell')
-	jhbuild_chunks = chunks.difference (stratum_build_depends)
+	chunks = jhbuild.get_module_list(target_metamodule)
+	jhbuild_chunks = chunks.difference(stratum_build_depends)
 
 	source_list = parser.get_root().get_object().get_member('sources')
 
@@ -85,7 +150,7 @@ def jhbuild_import ():
 
 	sort_sources (parser.get_root().get_object())
 
-	write_json_postprocessed (FILENAME, parser.get_root())
+	write_json_postprocessed (stratum_morphology, parser.get_root())
 
 
 def add_repo (source_node, repo_format):
@@ -238,19 +303,19 @@ def fix_stratum_sorting (stratum):
 		sources.remove_member('build-depends')
 		sources.set_array_member('build-depends', build_depends)
 
-def load_stratum_with_deps (filename, nested = False):
-	"""
-	Returns: tuplet of Json.Parser for current file, and set of chunks
+def load_stratum_with_deps(filename, nested = False):
+	'''Returns: tuplet of Json.Parser for current file, and set of chunks
 	that are available in strata that this one depends on.
-	"""
-	parser = Json.Parser ()
-	parser.load_from_file (filename)
+	'''
+
+	parser = Json.Parser()
+	parser.load_from_file(filename)
 
 	build_dep_chunk_set = set()
 
 	build_dep_list = parser.get_root().get_object().get_member('build-depends')
 	if build_dep_list is not None:
-		build_dep_list = [node.get_string() + ".morph" for node in build_dep_list.get_array().get_elements()]
+		build_dep_list = [node.get_string()+".morph" for node in build_dep_list.get_array().get_elements()]
 	else:
 		build_dep_list = []
 	if not nested:
@@ -258,18 +323,18 @@ def load_stratum_with_deps (filename, nested = False):
 
 	for child_filename in build_dep_list:
 		# FIXME: use a more geological term for "the stratum below this one" :)
-		(child_parser, child_build_dep_set) = load_stratum (child_filename, nested = True)
+		(child_parser, child_build_dep_set) = load_stratum_with_deps(child_filename, nested = True)
 
-		build_dep_chunk_set = set.union (build_dep_chunk_set, child_build_dep_set)
+		build_dep_chunk_set = set.union(build_dep_chunk_set, child_build_dep_set)
 
-		child_source_list = child_parser.get_root().get_object().get_member('sources')
+		child_stratum = child_parser.get_root().get_object()
+		child_source_list = child_stratum.get_member('sources')
 
 		for chunk_node in child_source_list.get_array().get_elements():
 			chunk_object = chunk_node.get_object ()
 			chunk_name = chunk_object.get_member('name').get_string()
 
 			build_dep_chunk_set.add (chunk_name)
-
 
 	return (parser, build_dep_chunk_set)
 
