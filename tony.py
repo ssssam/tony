@@ -67,21 +67,12 @@ def jhbuild_import (jhbuild_path, stratum_morphology, target_metamodule):
 		# I'd like to keep a11y stuff in wherever possible, but this is big
 		'mousetweaks',
 
-		# Maybe a separate 'gnome-networking' stratum?
-		# In practice we'd need to make some of these deps optional upstream
-		'glib-networking',
 		'avahi',
-		'NetworkManager',
-		'network-manager-applet',
 		'telepathy-mission-control',
 
 		# Requires WebKit, which requires Gtk+-2, generally not want.
 		# We need to configure evolution-data-server with --disable-goa.
 		'gnome-online-accounts',
-
-		# Needs NetworkManager. We must pass --disable-weather to
-		# evolution-data-server accordingly.
-		'libgweather',
 
 		# Conditional dep of gnome-settings-daemon, not useful in embedded
 		'libwacom',
