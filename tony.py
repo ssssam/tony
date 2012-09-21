@@ -61,6 +61,18 @@ def jhbuild_import (jhbuild_path, stratum_morphology, target_metamodule):
     ]
 
     ignore_list = set([
+        # systembuild-deps (listed as dependencies but not actual jhbuild modules)
+        # FIXME: must be a better trick here than just ignoring them
+        'bison', 'flex', 'gl', 'libdb', 'libffi', 'libjpeg', 'libpng',
+        'libtiff', 'libtool-ltdl', 'libusb1', 'libuuid', 'libvorbis',
+        'libXcomposite',
+        'libXft', 'libXinerama', 'libxkbfile', 'libXrandr',
+        'pam', 'python-devel', 'xcb-util', 'xkeyboard-config',
+        'zlib',
+
+        # things we don't actually have in Baserock but also disable
+        'ppp', 'wireless-tools',
+
         # In foundation / Gtk+ under different names
         'expat',
         'gtk-doc',
@@ -89,7 +101,10 @@ def jhbuild_import (jhbuild_path, stratum_morphology, target_metamodule):
         'libwacom',
 
         # Don't want
-        'bluez'
+        'bluez',
+
+        # :(
+        'tracker'
     ])
 
     (parser, stratum_build_depends) = load_stratum_with_deps(stratum_morphology)
@@ -126,8 +141,7 @@ def jhbuild_import (jhbuild_path, stratum_morphology, target_metamodule):
 
             chunk_object.set_array_member ('build-depends', new_build_depends)
 
-    #for new_chunk in jhbuild_chunks.difference(morph_chunks):
-    if 0:
+    for new_chunk in jhbuild_chunks.difference(morph_chunks):
         chunk_object = Json.Object ()
         chunk_object.set_string_member ('name', new_chunk)
 
@@ -316,7 +330,6 @@ def load_stratum_with_deps(filename, nested = False):
 
     build_dep_chunk_set = set()
 
-    print filename
     build_dep_list = parser.get_root().get_object().get_member('build-depends')
     if build_dep_list is not None:
         build_dep_list = [
