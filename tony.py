@@ -11,6 +11,14 @@ from tony_jhbuild import JhbuildModules
 
 import json
 
+def get_repo_basename(repo):
+    last_sep = max(repo.rfind(':'), repo.rfind('/'))
+    if last_sep == -1:
+        print "Warning: %s: probably malformed repo URL" % repo
+        return repo
+    else:
+        return repo[last_sep+1:]
+
 def __main__ ():
     # Synchronise with jhbuild moduleset
     jhbuild_import('/home/sam/gnome/src/jhbuild',
@@ -21,17 +29,20 @@ def __main__ ():
                    'gnome-legacy.morph',
                    'meta-gnome-core-shell-fallback')
 
-    # Load input stratum
-    # - parser is a Json.Parser() for the file
-    # - stratum_build_depends is a list of the chunks available in strata
-    #   that are dependencies of the one that was specified.
-    #(parser, stratum_build_depends) = load_stratum ("gnome.morph")
-
-    #sort_sources (parser.get_root().get_object())
-
-    #write_json_postprocessed (FILENAME, parser.get_root())
-
-    return
+def convert_strata_list_to_use_triples(strata_list, repo, ref):
+    builder = Json.Builder()
+    builder.begin_array()
+    for stratum_node in strata_list.get_elements():
+        builder.begin_object()
+        builder.set_member_name("morph")
+        builder.add_string_value(stratum_node.get_string())
+        builder.set_member_name("repo")
+        builder.add_string_value(repo)
+        builder.set_member_name("ref")
+        builder.add_string_value(ref)
+        builder.end_object()
+    builder.end_array()
+    return builder
 
 
 def jhbuild_import (jhbuild_path, stratum_morphology, target_metamodule):
@@ -90,7 +101,7 @@ def jhbuild_import (jhbuild_path, stratum_morphology, target_metamodule):
     chunks = jhbuild.get_module_list(target_metamodule)
     jhbuild_chunks = chunks.difference(stratum_build_depends)
 
-    source_list = parser.get_root().get_object().get_member('sources')
+    source_list = parser.get_root().get_object().get_member('chunks')
 
     morph_chunks = set()
     for chunk_node in source_list.get_array().get_elements():
@@ -115,7 +126,8 @@ def jhbuild_import (jhbuild_path, stratum_morphology, target_metamodule):
 
             chunk_object.set_array_member ('build-depends', new_build_depends)
 
-    for new_chunk in jhbuild_chunks.difference(morph_chunks):
+    #for new_chunk in jhbuild_chunks.difference(morph_chunks):
+    if 0:
         chunk_object = Json.Object ()
         chunk_object.set_string_member ('name', new_chunk)
 
@@ -236,7 +248,7 @@ def sort_build_depends (chunk_object):
     chunk_object.set_array_member ('build-depends', new_build_depends)
 
 def sort_sources (stratum_object):
-    source_list = stratum_object.get_member('sources')
+    source_list = stratum_object.get_member('chunks')
 
     source_nodes = source_list.get_array().get_elements()
 
@@ -281,14 +293,14 @@ def sort_sources (stratum_object):
     for node in sorted_nodes:
         new_source_list.add_object_element (node.get_object())
 
-    stratum_object.set_array_member ('sources', new_source_list)
+    stratum_object.set_array_member ('chunks', new_source_list)
 
 def fix_stratum_sorting (stratum):
     if stratum.get_member('kind').get_string() != 'stratum' or \
-       stratum.get_member('sources') == None:
+       stratum.get_member('chunks') == None:
         return
 
-    for sources_node in stratum.get_member('sources').get_array().get_elements():
+    for sources_node in stratum.get_member('chunks').get_array().get_elements():
         sources = sources_node.get_object()
         build_depends = sources.get_array_member('build-depends').copy()
         sources.remove_member('build-depends')
@@ -304,9 +316,12 @@ def load_stratum_with_deps(filename, nested = False):
 
     build_dep_chunk_set = set()
 
+    print filename
     build_dep_list = parser.get_root().get_object().get_member('build-depends')
     if build_dep_list is not None:
-        build_dep_list = [node.get_string()+".morph" for node in build_dep_list.get_array().get_elements()]
+        build_dep_list = [
+            node.get_object().get_member("morph").get_string()+".morph"
+            for node in build_dep_list.get_array().get_elements()]
     else:
         build_dep_list = []
     if not nested:
@@ -319,7 +334,7 @@ def load_stratum_with_deps(filename, nested = False):
         build_dep_chunk_set = set.union(build_dep_chunk_set, child_build_dep_set)
 
         child_stratum = child_parser.get_root().get_object()
-        child_source_list = child_stratum.get_member('sources')
+        child_source_list = child_stratum.get_member('chunks')
 
         for chunk_node in child_source_list.get_array().get_elements():
             chunk_object = chunk_node.get_object ()
@@ -329,6 +344,19 @@ def load_stratum_with_deps(filename, nested = False):
 
     return (parser, build_dep_chunk_set)
 
+def put_member_to_end(struct, name):
+    value = struct.get_member(name)
+    if value is not None:
+        value = value.copy()
+        struct.remove_member(name)
+        struct.set_member(name, value)
+
+def rename_member(struct, old_name, new_name):
+    member = struct.get_member(old_name)
+
+    if member is not None:
+        struct.set_member(new_name, member)
+        struct.remove_member(old_name)
 
 def write_json_postprocessed (filename, root_node):
     """
